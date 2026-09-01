@@ -45,9 +45,10 @@ import { useCanvasStore } from "@/stores/canvas/use-canvas-store";
 import { useAgentBridge } from "@/pages/canvas/hooks/use-agent-bridge";
 import { usePluginHost } from "@/pages/canvas/hooks/use-plugin-host";
 import { buildNodeMentionReferences, getGroupResourceNodes, isCanvasReferenceNode, type CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
+import { cardMentionLabel, isCanvasCardNode, matchedCardNodeIds } from "@/lib/canvas/canvas-card-references";
 import { exportCanvasProjects } from "@/lib/canvas/canvas-export";
 import { applyNodeConfigPatch, audioMetadata, buildAudioGenerationMetadata, buildImageGenerationMetadata, createCanvasNode, imageMetadata, videoMetadata } from "@/lib/canvas/canvas-node-factory";
-import { findContainingGroupId, findGroupDropTarget, getConnectionTargetAnchor, normalizeConnection, snapNodesIntoGroup } from "@/lib/canvas/canvas-node-geometry";
+import { arrangeMediaNodes, findContainingGroupId, findGroupDropTarget, getConnectionTargetAnchor, normalizeConnection, snapNodesIntoGroup, type CanvasMediaLayout } from "@/lib/canvas/canvas-node-geometry";
 import {
     audioExtension,
     buildAngleLabel,
@@ -202,7 +203,6 @@ function InfiniteCanvasPage() {
     const [chatSessions, setChatSessions] = useState<CanvasAssistantSession[]>([]);
     const [activeChatId, setActiveChatId] = useState<string | null>(null);
     const [viewport, setViewport] = useState<ViewportTransform>({ x: 0, y: 0, k: 1 });
-    const [canvasTool, setCanvasTool] = useState<"select" | "pan">("pan");
     const [size, setSize] = useState({ width: 1200, height: 720 });
     const [selectedNodeIds, setSelectedNodeIds] = useState<Set<string>>(new Set());
     const [selectedConnectionId, setSelectedConnectionId] = useState<string | null>(null);
@@ -590,6 +590,13 @@ function InfiniteCanvasPage() {
     }, [nodes, size.height, size.width, viewport.k, viewport.x, viewport.y]);
 
     const nodeById = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes]);
+    const canArrangeSelectedMedia = useMemo(
+        () => selectedNodeIds.size >= 2 && Array.from(selectedNodeIds).every((id) => [CanvasNodeType.Image, CanvasNodeType.Video].some((type) => type === nodeById.get(id)?.type)),
+        [nodeById, selectedNodeIds],
+    );
+    const arrangeSelectedMedia = useCallback((layout: CanvasMediaLayout) => {
+        setNodes((current) => arrangeMediaNodes(current, selectedNodeIdsRef.current, layout));
+    }, []);
     // The toolbar follows a single selected node selected by click, creation, marquee, or keyboard.
     // It stays hidden for multi-selection and while isNodeDragging is true.
     const singleSelectedNodeId = selectedNodeIds.size === 1 ? Array.from(selectedNodeIds)[0] : null;
@@ -718,7 +725,7 @@ function InfiniteCanvasPage() {
                   ? Boolean(definition.autoOpenPanel)
                   : definition?.useBuiltinPanel
                     ? true
-                    : isBuiltinType(type) && type !== CanvasNodeType.Text && type !== CanvasNodeType.Audio && type !== CanvasNodeType.Group;
+                : isBuiltinType(type) && type !== CanvasNodeType.Text && type !== CanvasNodeType.Audio && type !== CanvasNodeType.Group && !isCanvasCardNode(newNode);
             if (wantsPanel) setDialogNodeId(newNode.id);
         },
         [effectiveConfig.canvasImageCount, effectiveConfig.count, effectiveConfig.imageModel, effectiveConfig.model, effectiveConfig.size, getCanvasCenter],
@@ -1594,7 +1601,42 @@ function InfiniteCanvasPage() {
     }, []);
 
     const handleNodePromptChange = useCallback((nodeId: string, prompt: string) => {
-        setNodes((prev) => prev.map((node) => (node.id === nodeId ? { ...node, metadata: { ...node.metadata, prompt } } : node)));
+        const node = nodesRef.current.find((item) => item.id === nodeId);
+        if (node?.type !== CanvasNodeType.Video) {
+            setNodes((prev) => prev.map((item) => (item.id === nodeId ? { ...item, metadata: { ...item.metadata, prompt } } : item)));
+            return;
+        }
+        const cardNodes = nodesRef.current.filter(isCanvasCardNode);
+        const matchedIds = matchedCardNodeIds(prompt, cardNodes);
+        const labels = cardNodes.filter((card) => matchedIds.includes(card.id)).map(cardMentionLabel).filter((label) => label && !prompt.includes(label));
+        const nextPrompt = `${prompt.trimEnd()}${labels.length ? `${prompt.trim() ? " " : ""}${labels.join(" ")}` : ""}`;
+        setNodes((prev) => prev.map((item) => (item.id === nodeId ? { ...item, metadata: { ...item.metadata, prompt: nextPrompt } } : item)));
+        if (!matchedIds.length) return;
+        setConnections((prev) => {
+            const existing = new Set(prev.map((connection) => `${connection.fromNodeId}:${connection.toNodeId}`));
+            const additions = matchedIds.filter((fromNodeId) => !existing.has(`${fromNodeId}:${nodeId}`)).map((fromNodeId) => ({ id: nanoid(), fromNodeId, toNodeId: nodeId }));
+            return additions.length ? [...prev, ...additions] : prev;
+        });
+    }, []);
+
+    const handleCardMetadataChange = useCallback((nodeId: string, patch: Partial<CanvasNodeMetadata>) => {
+        const name = patch.cardName?.trim();
+        const card = nodesRef.current.find((node) => node.id === nodeId);
+        const mention = card && name ? cardMentionLabel({ ...card, metadata: { ...card.metadata, ...patch } }) : "";
+        const videoIds = name ? nodesRef.current.filter((node) => node.type === CanvasNodeType.Video && node.metadata?.prompt?.includes(name)).map((node) => node.id) : [];
+        setNodes((prev) =>
+            prev.map((node) => {
+                if (node.id === nodeId) return { ...node, metadata: { ...node.metadata, ...patch } };
+                if (videoIds.includes(node.id) && mention && !node.metadata?.prompt?.includes(mention)) return { ...node, metadata: { ...node.metadata, prompt: `${node.metadata?.prompt?.trimEnd()}${node.metadata?.prompt?.trim() ? " " : ""}${mention}` } };
+                return node;
+            }),
+        );
+        if (!videoIds.length) return;
+        setConnections((prev) => {
+            const existing = new Set(prev.map((connection) => `${connection.fromNodeId}:${connection.toNodeId}`));
+            const additions = videoIds.filter((toNodeId) => !existing.has(`${nodeId}:${toNodeId}`)).map((toNodeId) => ({ id: nanoid(), fromNodeId: nodeId, toNodeId }));
+            return additions.length ? [...prev, ...additions] : prev;
+        });
     }, []);
 
     const handleConfigNodeChange = useCallback((nodeId: string, patch: Partial<CanvasNodeData["metadata"]>) => {
@@ -2854,7 +2896,7 @@ function InfiniteCanvasPage() {
 
     const renderNodePanel = useCallback(
         (panelNode: CanvasNodeData) =>
-            getNodeDefinition(panelNode.type)?.Panel ? (
+            isCanvasCardNode(panelNode) ? null : getNodeDefinition(panelNode.type)?.Panel ? (
                 renderPluginPanel(panelNode)
             ) : panelNode.type === CanvasNodeType.Config ? (
                 <CanvasConfigComposer
@@ -2942,7 +2984,6 @@ function InfiniteCanvasPage() {
                 <InfiniteCanvas
                     containerRef={containerRef}
                     viewport={viewport}
-                    tool={canvasTool}
                     backgroundMode={backgroundMode}
                     onViewportChange={(next) => {
                         setViewport(next);
@@ -3020,6 +3061,7 @@ function InfiniteCanvasPage() {
                             onResize={handleNodeResize}
                             onResizeEnd={handleNodeResizeEnd}
                             onContentChange={handleNodeContentChange}
+                            onCardMetadataChange={handleCardMetadataChange}
                             onTitleChange={handleNodeTitleChange}
                             onToggleBatch={toggleBatchExpanded}
                             onSetBatchPrimary={setBatchPrimary}
@@ -3091,9 +3133,9 @@ function InfiniteCanvasPage() {
 
                 <CanvasToolbar
                     selectedCount={selectedNodeIds.size}
-                    canvasTool={canvasTool}
                     canUndo={historyState.canUndo}
                     canRedo={historyState.canRedo}
+                    canArrangeSelection={canArrangeSelectedMedia}
                     backgroundMode={backgroundMode}
                     showImageInfo={showImageInfo}
                     onAddImage={() => createNode(CanvasNodeType.Image)}
@@ -3102,13 +3144,18 @@ function InfiniteCanvasPage() {
                     onAddText={() => createNode(CanvasNodeType.Text)}
                     onAddConfig={() => createNode(CanvasNodeType.Config)}
                     onAddGroup={() => createNode(CanvasNodeType.Group)}
+                    onAddCharacterCard={() => createNode(CanvasNodeType.CharacterCard)}
+                    onAddPropCard={() => createNode(CanvasNodeType.PropCard)}
+                    onAddSceneCard={() => createNode(CanvasNodeType.SceneCard)}
                     onAddExtensionNode={(type) => createNode(type)}
                     onUndo={undoCanvas}
                     onRedo={redoCanvas}
+                    onArrangeHorizontally={() => arrangeSelectedMedia("horizontal")}
+                    onArrangeVertically={() => arrangeSelectedMedia("vertical")}
+                    onArrangeGrid={() => arrangeSelectedMedia("grid")}
                     onUpload={() => handleUploadRequest()}
                     onDelete={() => deleteNodes(new Set(selectedNodeIds))}
                     onClear={() => setClearConfirmOpen(true)}
-                    onCanvasToolChange={setCanvasTool}
                     onBackgroundModeChange={setBackgroundMode}
                     onShowImageInfoChange={setShowImageInfo}
                 />

@@ -6,6 +6,7 @@ import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
 import { CanvasNodeType, type CanvasConnection, type CanvasNodeData } from "@/types/canvas";
 import { getGenerationResourceNodes, getGroupResourceNodes } from "@/lib/canvas/canvas-resource-references";
 import { getNodeDefinition } from "@/lib/canvas/node-registry";
+import { isCanvasCardNode } from "@/lib/canvas/canvas-card-references";
 
 export type NodeGenerationContext = {
     prompt: string;
@@ -143,6 +144,7 @@ function flattenGenerationInputs(inputs: NodeGenerationInput[]) {
 }
 
 function readNodeGenerationResource(node: CanvasNodeData): NodeGenerationResourceInput[] {
+    if (isCanvasCardNode(node)) return readCardGenerationResources(node);
     const image = readReferenceImage(node);
     if (image) return [{ nodeId: node.id, type: "image", title: node.title, image }];
     const video = readReferenceVideo(node);
@@ -156,6 +158,15 @@ function readNodeGenerationResource(node: CanvasNodeData): NodeGenerationResourc
     if (resource?.kind === "text" && resource.text) return [{ nodeId: node.id, type: "text", title: node.title, text: resource.text }];
     const text = readNodeTextInput(node);
     return text ? [{ nodeId: node.id, type: "text", title: node.title, text }] : [];
+}
+
+function readCardGenerationResources(node: CanvasNodeData): NodeGenerationResourceInput[] {
+    const images = node.type === CanvasNodeType.CharacterCard ? [node.metadata?.cardFaceImage, node.metadata?.cardOutfitImage] : [node.metadata?.cardImage];
+    return images.flatMap((image, index) =>
+        image?.url
+            ? [{ nodeId: `${node.id}:${index}`, type: "image" as const, title: node.metadata?.cardName || node.title, image: { id: `${node.id}:${index}`, name: `${node.metadata?.cardName || node.title}-${index + 1}.png`, type: image.mimeType || "image/png", dataUrl: image.url, storageKey: image.storageKey } }]
+            : [],
+    );
 }
 
 export function buildNodeResponseMessages(context: NodeGenerationContext): AiTextMessage[] {

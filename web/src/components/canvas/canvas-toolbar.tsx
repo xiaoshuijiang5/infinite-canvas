@@ -1,7 +1,7 @@
 import type { CSSProperties, MouseEvent as ReactMouseEvent, ReactNode, RefObject } from "react";
 import { useEffect, useRef, useState } from "react";
 import { Button, Segmented, Switch } from "antd";
-import { CircleDot, Eraser, Grid2x2, Group, Hand, Image as ImageIcon, Info, Moon, MousePointer2, Music2, Palette, Puzzle, Redo2, Settings2, Square, Sun, Trash2, Type, Undo2, Upload, Video } from "lucide-react";
+import { AlignHorizontalSpaceAround, AlignVerticalSpaceAround, CircleDot, Drama, Eraser, Grid2x2, Grid3x3, Group, Image as ImageIcon, Info, MapPinned, Moon, Music2, Package, Palette, Puzzle, Redo2, Settings2, Square, Sun, Trash2, Type, Undo2, Upload, Video } from "lucide-react";
 
 import { canvasThemes, type CanvasBackgroundMode, type CanvasColorTheme, type CanvasTheme } from "@/lib/canvas-theme";
 import { getNodePluginId, listNodeDefinitions, useNodeRegistryVersion } from "@/lib/canvas/node-registry";
@@ -11,9 +11,9 @@ import { useTranslation } from "react-i18next";
 
 export function CanvasToolbar({
     selectedCount,
-    canvasTool,
     canUndo,
     canRedo,
+    canArrangeSelection,
     backgroundMode,
     showImageInfo,
     onAddImage,
@@ -22,20 +22,25 @@ export function CanvasToolbar({
     onAddText,
     onAddConfig,
     onAddGroup,
+    onAddCharacterCard,
+    onAddPropCard,
+    onAddSceneCard,
     onAddExtensionNode,
     onUndo,
     onRedo,
+    onArrangeHorizontally,
+    onArrangeVertically,
+    onArrangeGrid,
     onUpload,
     onDelete,
     onClear,
-    onCanvasToolChange,
     onBackgroundModeChange,
     onShowImageInfoChange,
 }: {
     selectedCount: number;
-    canvasTool: "select" | "pan";
     canUndo: boolean;
     canRedo: boolean;
+    canArrangeSelection: boolean;
     backgroundMode: CanvasBackgroundMode;
     showImageInfo: boolean;
     onAddImage: () => void;
@@ -44,13 +49,18 @@ export function CanvasToolbar({
     onAddText: () => void;
     onAddConfig: () => void;
     onAddGroup: () => void;
+    onAddCharacterCard: () => void;
+    onAddPropCard: () => void;
+    onAddSceneCard: () => void;
     onAddExtensionNode: (type: string) => void;
     onUndo: () => void;
     onRedo: () => void;
+    onArrangeHorizontally: () => void;
+    onArrangeVertically: () => void;
+    onArrangeGrid: () => void;
     onUpload: () => void;
     onDelete: () => void;
     onClear: () => void;
-    onCanvasToolChange: (tool: "select" | "pan") => void;
     onBackgroundModeChange: (mode: CanvasBackgroundMode) => void;
     onShowImageInfoChange: (show: boolean) => void;
 }) {
@@ -91,9 +101,6 @@ export function CanvasToolbar({
         <div ref={rootRef} className="pointer-events-none absolute bottom-5 z-50 flex justify-center" style={{ left: 300, right: 16 }}>
             {tip ? <DockTip label={tip} x={tipX} theme={theme} /> : null}
             <div ref={wrapRef} className="thin-scrollbar pointer-events-auto flex h-14 max-w-full items-center gap-1 overflow-x-auto rounded-xl border px-2 shadow-lg backdrop-blur [&>*]:shrink-0" style={dockStyle}>
-                <ToolbarButton id={`tool-${canvasTool}`} label={t(`canvas.toolbar.${canvasTool}`)} active hovered={hovered} activeStyle={activeStyle} hoverStyle={hoverStyle} wrapRef={wrapRef} onTipX={setTipX} onHover={setHovered} onClick={() => onCanvasToolChange(canvasTool === "select" ? "pan" : "select")}>
-                    {canvasTool === "select" ? <MousePointer2 className="size-4.5" /> : <Hand className="size-4.5" />}
-                </ToolbarButton>
                 <ToolbarButton id="tool-undo" label={t("canvas.undo")} disabled={!canUndo} hovered={hovered} hoverStyle={hoverStyle} wrapRef={wrapRef} onTipX={setTipX} onHover={setHovered} onClick={onUndo}>
                     <Undo2 className="size-4.5" />
                 </ToolbarButton>
@@ -118,6 +125,15 @@ export function CanvasToolbar({
                 </ToolbarButton>
                 <ToolbarButton id="tool-group" label={t("canvas.toolbar.group")} hovered={hovered} hoverStyle={hoverStyle} wrapRef={wrapRef} onTipX={setTipX} onHover={setHovered} onClick={onAddGroup}>
                     <Group className="size-4.5" />
+                </ToolbarButton>
+                <ToolbarButton id="tool-character-card" label={t("canvas.toolbar.characterCard")} hovered={hovered} hoverStyle={hoverStyle} wrapRef={wrapRef} onTipX={setTipX} onHover={setHovered} onClick={onAddCharacterCard}>
+                    <Drama className="size-4.5" />
+                </ToolbarButton>
+                <ToolbarButton id="tool-prop-card" label={t("canvas.toolbar.propCard")} hovered={hovered} hoverStyle={hoverStyle} wrapRef={wrapRef} onTipX={setTipX} onHover={setHovered} onClick={onAddPropCard}>
+                    <Package className="size-4.5" />
+                </ToolbarButton>
+                <ToolbarButton id="tool-scene-card" label={t("canvas.toolbar.sceneCard")} hovered={hovered} hoverStyle={hoverStyle} wrapRef={wrapRef} onTipX={setTipX} onHover={setHovered} onClick={onAddSceneCard}>
+                    <MapPinned className="size-4.5" />
                 </ToolbarButton>
                 {extensionDefs.length ? (
                     <ToolbarButton
@@ -161,6 +177,20 @@ export function CanvasToolbar({
                 >
                     <Palette className="size-4.5" />
                 </ToolbarButton>
+                {canArrangeSelection ? (
+                    <>
+                        <Divider theme={theme} />
+                        <ToolbarButton id="tool-arrange-horizontal" label={t("canvas.toolbar.arrangeHorizontally")} hovered={hovered} hoverStyle={hoverStyle} wrapRef={wrapRef} onTipX={setTipX} onHover={setHovered} onClick={onArrangeHorizontally}>
+                            <AlignHorizontalSpaceAround className="size-4.5" />
+                        </ToolbarButton>
+                        <ToolbarButton id="tool-arrange-vertical" label={t("canvas.toolbar.arrangeVertically")} hovered={hovered} hoverStyle={hoverStyle} wrapRef={wrapRef} onTipX={setTipX} onHover={setHovered} onClick={onArrangeVertically}>
+                            <AlignVerticalSpaceAround className="size-4.5" />
+                        </ToolbarButton>
+                        <ToolbarButton id="tool-arrange-grid" label={t("canvas.toolbar.arrangeGrid")} hovered={hovered} hoverStyle={hoverStyle} wrapRef={wrapRef} onTipX={setTipX} onHover={setHovered} onClick={onArrangeGrid}>
+                            <Grid3x3 className="size-4.5" />
+                        </ToolbarButton>
+                    </>
+                ) : null}
                 {selectedCount ? (
                     <>
                         <Divider theme={theme} />
@@ -352,8 +382,6 @@ function DockTip({ label, x, theme }: { label: string; x: number; theme: CanvasT
 }
 
 function toolLabel(id: string, t: (key: string) => string) {
-    if (id === "tool-select") return t("canvas.toolbar.select");
-    if (id === "tool-pan") return t("canvas.toolbar.pan");
     if (id === "tool-undo") return t("canvas.undo");
     if (id === "tool-redo") return t("canvas.redo");
     if (id === "tool-text") return t("canvas.toolbar.text");
@@ -362,9 +390,15 @@ function toolLabel(id: string, t: (key: string) => string) {
     if (id === "tool-audio") return t("canvas.toolbar.audio");
     if (id === "tool-config") return t("canvas.toolbar.config");
     if (id === "tool-group") return t("canvas.toolbar.group");
+    if (id === "tool-character-card") return t("canvas.toolbar.characterCard");
+    if (id === "tool-prop-card") return t("canvas.toolbar.propCard");
+    if (id === "tool-scene-card") return t("canvas.toolbar.sceneCard");
     if (id === "tool-extensions") return t("canvas.toolbar.extensions");
     if (id === "tool-upload") return t("canvas.toolbar.upload");
     if (id === "tool-style") return t("canvas.toolbar.appearance");
+    if (id === "tool-arrange-horizontal") return t("canvas.toolbar.arrangeHorizontally");
+    if (id === "tool-arrange-vertical") return t("canvas.toolbar.arrangeVertically");
+    if (id === "tool-arrange-grid") return t("canvas.toolbar.arrangeGrid");
     if (id === "tool-delete") return t("canvas.deleteSelected");
     if (id === "tool-clear") return t("canvas.toolbar.clear");
     return "";

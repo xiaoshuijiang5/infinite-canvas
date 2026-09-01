@@ -16,6 +16,9 @@ export enum CanvasNodeType {
     Video = "video",
     Audio = "audio",
     Group = "group",
+    CharacterCard = "character-card",
+    PropCard = "prop-card",
+    SceneCard = "scene-card",
 }
 
 // Node types are open strings: built-ins use CanvasNodeType and plugins use "<pluginId>:<name>".
@@ -42,6 +45,16 @@ export type CanvasNodeText = {
     status: CanvasNodeStatus;
     errorDetails?: string;
     content: string;
+};
+
+export type CanvasCardMedia = {
+    url: string;
+    storageKey?: string;
+    mimeType: string;
+    bytes: number;
+    width?: number;
+    height?: number;
+    durationMs?: number;
 };
 
 export type CanvasNodeMetadata = {
@@ -81,6 +94,11 @@ export type CanvasNodeMetadata = {
     bytes?: number;
     durationMs?: number;
     groupId?: string;
+    cardName?: string;
+    cardFaceImage?: CanvasCardMedia;
+    cardOutfitImage?: CanvasCardMedia;
+    cardImage?: CanvasCardMedia;
+    cardVoice?: CanvasCardMedia;
     interactive?: boolean; // Plugin node interaction/move state; see CanvasNodeDefinition.interactionToggle.
 };
 

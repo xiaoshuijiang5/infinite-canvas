@@ -1,5 +1,63 @@
 import { CanvasNodeType, type CanvasNodeData, type ConnectionHandle } from "@/types/canvas";
 
+export type CanvasMediaLayout = "horizontal" | "vertical" | "grid";
+
+const CANVAS_MEDIA_LAYOUT_GAP = 16;
+
+export function arrangeMediaNodes(nodes: CanvasNodeData[], selectedIds: ReadonlySet<string>, layout: CanvasMediaLayout) {
+    const selected = nodes.filter((node) => selectedIds.has(node.id));
+    if (selected.length < 2) return nodes;
+
+    const bounds = nodeBounds(selected);
+    const sorted = [...selected].sort((a, b) => (layout === "horizontal" ? a.position.x - b.position.x || a.position.y - b.position.y : a.position.y - b.position.y || a.position.x - b.position.x));
+    const positions = new Map<string, { x: number; y: number }>();
+
+    if (layout === "horizontal") {
+        let x = bounds.left;
+        sorted.forEach((node) => {
+            positions.set(node.id, { x, y: bounds.top });
+            x += node.width + CANVAS_MEDIA_LAYOUT_GAP;
+        });
+    } else if (layout === "vertical") {
+        let y = bounds.top;
+        sorted.forEach((node) => {
+            positions.set(node.id, { x: bounds.right - node.width, y });
+            y += node.height + CANVAS_MEDIA_LAYOUT_GAP;
+        });
+    } else {
+        const columns = Math.min(3, sorted.length);
+        const columnWidths = Array.from({ length: columns }, () => 0);
+        const rowHeights = Array.from({ length: Math.ceil(sorted.length / columns) }, () => 0);
+        sorted.forEach((node, index) => {
+            const column = index % columns;
+            const row = Math.floor(index / columns);
+            columnWidths[column] = Math.max(columnWidths[column], node.width);
+            rowHeights[row] = Math.max(rowHeights[row], node.height);
+        });
+        let columnOffset = 0;
+        const columnOffsets = columnWidths.map((width) => {
+            const offset = columnOffset;
+            columnOffset += width + CANVAS_MEDIA_LAYOUT_GAP;
+            return offset;
+        });
+        let rowOffset = 0;
+        const rowOffsets = rowHeights.map((height) => {
+            const offset = rowOffset;
+            rowOffset += height + CANVAS_MEDIA_LAYOUT_GAP;
+            return offset;
+        });
+        sorted.forEach((node, index) => {
+            positions.set(node.id, { x: bounds.left + columnOffsets[index % columns], y: bounds.top + rowOffsets[Math.floor(index / columns)] });
+        });
+    }
+
+    return nodes.map((node) => {
+        const position = positions.get(node.id);
+        if (position === undefined) return node;
+        return { ...node, position };
+    });
+}
+
 export function nodeBounds(nodes: CanvasNodeData[]) {
     return nodes.reduce(
         (acc, node) => ({

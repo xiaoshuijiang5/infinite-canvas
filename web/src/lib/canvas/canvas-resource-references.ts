@@ -4,6 +4,7 @@ import { getNodeDefinition } from "@/lib/canvas/node-registry";
 import { getDataUrlByteSize, readImageMeta } from "@/lib/image-utils";
 import { imageToDataUrl } from "@/services/image-storage";
 import { CanvasNodeType, type CanvasConnection, type CanvasNodeData } from "@/types/canvas";
+import { cardMentionLabel, cardReferenceTitle, isCanvasCardNode } from "@/lib/canvas/canvas-card-references";
 
 export type CanvasResourceKind = "image" | "video" | "audio" | "text";
 
@@ -104,14 +105,15 @@ function labelResourceNodes(nodes: CanvasNodeData[], active: boolean) {
         if (!kind) return [];
         const resource = getNodeDefinition(node.type)?.resource?.(node);
         const index = counts[kind]++;
-        const label = labelForKind(kind, index);
+        const label = isCanvasCardNode(node) ? cardMentionLabel(node) : labelForKind(kind, index);
+        if (!label) return [];
         return [
             {
                 id: node.id,
                 nodeId: node.id,
                 kind,
                 label,
-                title: node.title || label,
+                title: isCanvasCardNode(node) ? cardReferenceTitle(node) : node.title || label,
                 previewUrl: node.metadata?.content || resource?.url,
                 text: resourceText(node),
                 active,

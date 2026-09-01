@@ -1,4 +1,4 @@
-import { FileText, Group, Image as ImageIcon, Music2, Settings2, Video } from "lucide-react";
+import { Drama, FileText, Group, Image as ImageIcon, MapPinned, Music2, Package, Settings2, Video } from "lucide-react";
 
 import i18n from "@/i18n";
 
@@ -14,6 +14,9 @@ function builtinResource(node: CanvasNodeData): CanvasNodeResource | null {
     if (node.type === CanvasNodeType.Video && node.metadata?.content) return { kind: "video", url: node.metadata.content };
     if (node.type === CanvasNodeType.Audio && node.metadata?.content) return { kind: "audio", url: node.metadata.content };
     if (node.type === CanvasNodeType.Text && (node.metadata?.content || node.metadata?.prompt)) return { kind: "text", text: node.metadata.content || node.metadata.prompt };
+    if (node.type === CanvasNodeType.CharacterCard && (node.metadata?.cardFaceImage?.url || node.metadata?.cardOutfitImage?.url)) return { kind: "image", url: node.metadata.cardFaceImage?.url || node.metadata.cardOutfitImage?.url };
+    if ((node.type === CanvasNodeType.PropCard || node.type === CanvasNodeType.SceneCard) && node.metadata?.cardImage?.url) return { kind: "image", url: node.metadata.cardImage.url };
+    if ([CanvasNodeType.CharacterCard, CanvasNodeType.PropCard, CanvasNodeType.SceneCard].includes(node.type as CanvasNodeType) && node.metadata?.cardName?.trim()) return { kind: "text", text: node.metadata.cardName.trim() };
     return null;
 }
 
@@ -26,6 +29,9 @@ const BUILTIN_DEFINITIONS: CanvasNodeDefinition[] = [
     { type: CanvasNodeType.Audio, title: i18n.t("assets.kinds.audio"), icon: <Music2 className={iconClass} />, minimapColor: "#a855f7", resource: builtinResource },
     { type: CanvasNodeType.Config, title: i18n.t("canvas.configNode.title"), icon: <Settings2 className={iconClass} />, minimapColor: "#60a5fa", hasSourceHandle: false },
     { type: CanvasNodeType.Group, title: i18n.t("canvas.node.group"), icon: <Group className={iconClass} />, minimapColor: "#94a3b8" },
+    { type: CanvasNodeType.CharacterCard, title: i18n.t("canvas.nodeTypes.characterCard"), icon: <Drama className={iconClass} />, minimapColor: "#ec4899", resource: builtinResource },
+    { type: CanvasNodeType.PropCard, title: i18n.t("canvas.nodeTypes.propCard"), icon: <Package className={iconClass} />, minimapColor: "#f59e0b", resource: builtinResource },
+    { type: CanvasNodeType.SceneCard, title: i18n.t("canvas.nodeTypes.sceneCard"), icon: <MapPinned className={iconClass} />, minimapColor: "#14b8a6", resource: builtinResource },
 ].map((def) => {
     const spec = NODE_SPECS[def.type];
     return { ...def, title: spec.title, defaultSize: { width: spec.width, height: spec.height }, defaultMetadata: spec.metadata };

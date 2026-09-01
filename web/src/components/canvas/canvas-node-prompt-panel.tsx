@@ -60,6 +60,12 @@ export function CanvasNodePromptPanel({ node, nodes, isRunning, onPromptChange, 
         else onPromptChange(node.id, value);
     };
 
+    const insertReferenceMention = (referenceNode: CanvasNodeData) => {
+        const label = mentionReferences.find((reference) => reference.nodeId === referenceNode.id)?.label;
+        if (!label || prompt.includes(label)) return;
+        updatePrompt(`${prompt.trimEnd()}${prompt.trim() ? " " : ""}${label}`);
+    };
+
     const submit = () => {
         const text = prompt.trim();
         if (!text || isRunning) return;
@@ -79,7 +85,7 @@ export function CanvasNodePromptPanel({ node, nodes, isRunning, onPromptChange, 
             onPointerDown={(event) => event.stopPropagation()}
             onWheel={(event) => event.stopPropagation()}
         >
-            <CanvasNodeReferenceBar nodeId={node.id} nodes={nodes} connectedNodes={connectedNodes} onDisconnect={onDisconnectReference} onStartSelection={onStartReferenceSelection} />
+            <CanvasNodeReferenceBar nodeId={node.id} nodes={nodes} connectedNodes={connectedNodes} onDisconnect={onDisconnectReference} onStartSelection={onStartReferenceSelection} onMentionReference={node.type === CanvasNodeType.Video ? insertReferenceMention : undefined} />
             <CanvasPromptChipInput
                 value={prompt}
                 references={mentionReferences}
@@ -148,7 +154,7 @@ export function CanvasNodePromptPanel({ node, nodes, isRunning, onPromptChange, 
             </div>
             <Modal title={t("canvas.promptPanel.editorTitle")} open={expanded} centered width={760} footer={null} onCancel={() => setExpanded(false)} destroyOnHidden>
                 <div data-canvas-no-zoom className="pt-2" onWheelCapture={(event) => event.stopPropagation()}>
-                    <CanvasNodeReferenceBar nodeId={node.id} nodes={nodes} connectedNodes={connectedNodes} onDisconnect={onDisconnectReference} onStartSelection={(nodeId) => { setExpanded(false); onStartReferenceSelection?.(nodeId); }} />
+                    <CanvasNodeReferenceBar nodeId={node.id} nodes={nodes} connectedNodes={connectedNodes} onDisconnect={onDisconnectReference} onStartSelection={(nodeId) => { setExpanded(false); onStartReferenceSelection?.(nodeId); }} onMentionReference={node.type === CanvasNodeType.Video ? insertReferenceMention : undefined} />
                     <CanvasPromptChipInput
                         value={prompt}
                         references={mentionReferences}

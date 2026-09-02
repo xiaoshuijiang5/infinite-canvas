@@ -13,7 +13,7 @@ import { PromptDetailDialog } from "@/pages/prompts/components/prompt-detail-dia
 import { fetchSourcePrompts, type Prompt } from "@/services/api/prompts";
 import { uploadMediaFile } from "@/services/file-storage";
 import { uploadImage } from "@/services/image-storage";
-import { useAssetStore, type Asset, type AssetKind } from "@/stores/use-asset-store";
+import { useAssetStore, type Asset } from "@/stores/use-asset-store";
 import { usePromptSourceStore } from "@/stores/use-prompt-source-store";
 import { CANVAS_SIDE_PANEL_MAX_WIDTH, CANVAS_SIDE_PANEL_MIN_WIDTH, CANVAS_SIDE_PANEL_MOTION_MS, useCanvasSidePanelStore } from "@/stores/use-canvas-side-panel-store";
 import { useThemeStore } from "@/stores/use-theme-store";
@@ -111,7 +111,7 @@ export function CanvasSidePanel({ nodes, selectedNodeIds, onFocusNode, onPreview
                     {tab === "canvas" ? (
                         <CanvasNodesTab nodes={nodes} selectedNodeIds={selectedNodeIds} onFocusNode={onFocusNode} onPreviewNode={onPreviewNode} theme={theme} />
                     ) : tab === "assets" ? (
-                        <CanvasAssetsTab onInsert={onInsertAsset} theme={theme} />
+                        <CanvasAssetsTab nodes={nodes} onFocusNode={onFocusNode} onInsert={onInsertAsset} theme={theme} />
                     ) : (
                         <CanvasPromptsTab onInsert={onInsertAsset} theme={theme} />
                     )}
@@ -301,10 +301,10 @@ function CheckMark({ checked, theme }: { checked: boolean; theme: CanvasTheme })
 // Assets tab: collapsible type groups, tag filtering, and click-to-insert.
 // ---------------------------------------------------------------------------
 
-const ASSET_GROUPS: { kind: AssetKind; icon: typeof Square }[] = [
-    { kind: "image", icon: ImageIcon },
-    { kind: "video", icon: Video },
-    { kind: "text", icon: FileText },
+const CARD_ASSET_GROUPS = [
+    { id: CanvasNodeType.CharacterCard, icon: Drama, labelKey: "canvas.nodeTypes.characterCard" },
+    { id: CanvasNodeType.SceneCard, icon: MapPinned, labelKey: "canvas.nodeTypes.sceneCard" },
+    { id: CanvasNodeType.PropCard, icon: Package, labelKey: "canvas.nodeTypes.propCard" },
 ];
 
 function buildInsertPayload(asset: Asset): InsertAssetPayload {
@@ -313,7 +313,7 @@ function buildInsertPayload(asset: Asset): InsertAssetPayload {
     return { kind: "image", dataUrl: asset.data.dataUrl, storageKey: asset.data.storageKey, title: asset.title };
 }
 
-const CanvasAssetsTab = memo(function CanvasAssetsTab({ onInsert, theme }: { onInsert: (payload: InsertAssetPayload) => void; theme: CanvasTheme }) {
+const CanvasAssetsTab = memo(function CanvasAssetsTab({ nodes, onFocusNode, onInsert, theme }: { nodes: CanvasNodeData[]; onFocusNode: (nodeId: string) => void; onInsert: (payload: InsertAssetPayload) => void; theme: CanvasTheme }) {
     const { message } = App.useApp();
     const { t } = useTranslation();
     const assets = useAssetStore((state) => state.assets);
@@ -327,12 +327,19 @@ const CanvasAssetsTab = memo(function CanvasAssetsTab({ onInsert, theme }: { onI
 
     const allTags = useMemo(() => Array.from(new Set(assets.flatMap((asset) => asset.tags || []))).slice(0, 20), [assets]);
 
-    const filtered = useMemo(() => {
+    const filteredAssets = useMemo(() => {
         const query = keyword.trim().toLowerCase();
         return assets.filter((asset) => (tagFilter === "all" || (asset.tags || []).includes(tagFilter)) && (!query || [asset.title, ...(asset.tags || [])].join(" ").toLowerCase().includes(query)));
     }, [assets, keyword, tagFilter]);
 
-    const groups = useMemo(() => ASSET_GROUPS.map((group) => ({ ...group, items: filtered.filter((asset) => asset.kind === group.kind) })).filter((group) => group.items.length > 0), [filtered]);
+    const groups = useMemo(() => {
+        const query = keyword.trim().toLowerCase();
+        const cardNodes = (type: CanvasNodeType) => nodes.filter((node) => node.type === type && (!query || [node.title, node.metadata?.cardName].filter(Boolean).join(" ").toLowerCase().includes(query)));
+        return [
+            ...CARD_ASSET_GROUPS.map((group) => ({ ...group, nodes: cardNodes(group.id), assets: [] as Asset[] })),
+            { id: "assets", icon: ImageIcon, labelKey: "canvas.sidePanel.assets", nodes: [] as CanvasNodeData[], assets: filteredAssets },
+        ];
+    }, [filteredAssets, keyword, nodes]);
 
     const handleFiles = async (fileList: FileList | null) => {
         const files = Array.from(fileList || []);
@@ -396,22 +403,26 @@ const CanvasAssetsTab = memo(function CanvasAssetsTab({ onInsert, theme }: { onI
                 {groups.length ? (
                     <div className="space-y-1">
                         {groups.map((group) => {
-                            const isCollapsed = collapsed[group.kind];
+                            const isCollapsed = collapsed[group.id];
+                            const count = group.nodes.length + group.assets.length;
                             return (
-                                <div key={group.kind}>
+                                <div key={group.id}>
                                     <button
                                         type="button"
-                                        onClick={() => setCollapsed((prev) => ({ ...prev, [group.kind]: !prev[group.kind] }))}
+                                        onClick={() => setCollapsed((prev) => ({ ...prev, [group.id]: !prev[group.id] }))}
                                         className="flex w-full items-center gap-1.5 rounded-md px-1.5 py-1.5 text-left text-xs font-semibold opacity-75 transition hover:opacity-100"
                                     >
                                         <ChevronRight className={cn("size-3.5 transition-transform", !isCollapsed && "rotate-90")} />
                                         <group.icon className="size-3.5" />
-                                        <span>{t(`assets.kinds.${group.kind}`)}</span>
-                                        <span className="opacity-50">{group.items.length}</span>
+                                        <span>{t(group.labelKey)}</span>
+                                        <span className="opacity-50">{count}</span>
                                     </button>
                                     {isCollapsed ? null : (
                                         <div className="grid grid-cols-2 gap-2 px-1 pb-2 pt-1">
-                                            {group.items.map((asset) => (
+                                            {group.nodes.map((node) => (
+                                                <CanvasCardAsset key={node.id} node={node} theme={theme} onFocus={() => onFocusNode(node.id)} />
+                                            ))}
+                                            {group.assets.map((asset) => (
                                                 <AssetCard key={asset.id} asset={asset} theme={theme} onInsert={() => onInsert(buildInsertPayload(asset))} onRemove={() => (removeAsset(asset.id), message.success(t("canvas.sidePanel.assetRemoved")))} />
                                             ))}
                                         </div>
@@ -453,6 +464,19 @@ function AssetCard({ asset, theme, onInsert, onRemove }: { asset: Asset; theme: 
                 </Popconfirm>
             </div>
         </div>
+    );
+}
+
+function CanvasCardAsset({ node, theme, onFocus }: { node: CanvasNodeData; theme: CanvasTheme; onFocus: () => void }) {
+    const { t } = useTranslation();
+    const Icon = NODE_TYPE_ICON[node.type] || FileText;
+    const image = node.type === CanvasNodeType.CharacterCard ? node.metadata?.cardFaceImage?.url || node.metadata?.cardOutfitImage?.url : node.metadata?.cardImage?.url;
+    const label = node.metadata?.cardName || node.title || t("canvas.node.untitled");
+    return (
+        <button type="button" onClick={onFocus} title={label} aria-label={label} className="group relative aspect-square overflow-hidden rounded-lg border text-left transition duration-200 hover:-translate-y-0.5 hover:shadow-lg" style={{ borderColor: theme.node.stroke, background: theme.node.panel }}>
+            {image ? <img src={image} alt={label} className="size-full object-cover" /> : <span className="grid size-full place-items-center"><Icon className="size-6 opacity-55" /></span>}
+            <span className="absolute inset-x-0 bottom-0 truncate px-2 py-1.5 text-xs font-medium" style={{ background: theme.toolbar.panel, color: theme.node.text }}>{label}</span>
+        </button>
     );
 }
 

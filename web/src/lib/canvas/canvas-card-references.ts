@@ -11,6 +11,22 @@ export function cardMentionLabel(node: CanvasNodeData) {
     return `@${kind}：${name}`;
 }
 
+export function videoCardIntroduction(node: CanvasNodeData) {
+    const name = node.metadata?.cardName?.trim();
+    if (!name) return "";
+    if (node.type === CanvasNodeType.CharacterCard) return `@角色卡为${name}`;
+    if (node.type === CanvasNodeType.PropCard) return `@道具卡为${name}`;
+    if (node.type === CanvasNodeType.SceneCard) return "@场景卡为环境参考";
+    return "";
+}
+
+export function prependVideoCardIntroductions(prompt: string, cards: CanvasNodeData[]) {
+    const introductions = cards.map(videoCardIntroduction).filter(Boolean);
+    if (!introductions.length) return prompt.trim();
+    const body = introductions.reduce((text, introduction) => text.replace(introduction, ""), prompt).trim();
+    return [...introductions, body].filter(Boolean).join(" ");
+}
+
 export function cardReferenceTitle(node: CanvasNodeData) {
     return node.metadata?.cardName?.trim() || node.title;
 }

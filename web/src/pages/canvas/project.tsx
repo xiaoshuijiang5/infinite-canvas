@@ -44,8 +44,8 @@ import { useAgentStore } from "@/stores/use-agent-store";
 import { useCanvasStore } from "@/stores/canvas/use-canvas-store";
 import { useAgentBridge } from "@/pages/canvas/hooks/use-agent-bridge";
 import { usePluginHost } from "@/pages/canvas/hooks/use-plugin-host";
-import { buildNodeMentionReferences, getGroupResourceNodes, isCanvasReferenceNode, type CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
-import { cardMentionLabel, isCanvasCardNode, matchedCardNodeIds } from "@/lib/canvas/canvas-card-references";
+import { buildNodeMentionReferences, getGenerationResourceNodes, getGroupResourceNodes, isCanvasReferenceNode, type CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
+import { cardReferenceTitle, isCanvasCardNode, matchedCardNodeIds, prependVideoCardIntroductions, videoCardIntroduction } from "@/lib/canvas/canvas-card-references";
 import { exportCanvasProjects } from "@/lib/canvas/canvas-export";
 import { applyNodeConfigPatch, audioMetadata, buildAudioGenerationMetadata, buildImageGenerationMetadata, createCanvasNode, imageMetadata, videoMetadata } from "@/lib/canvas/canvas-node-factory";
 import { arrangeMediaNodes, findContainingGroupId, findGroupDropTarget, getConnectionTargetAnchor, normalizeConnection, snapNodesIntoGroup, type CanvasMediaLayout } from "@/lib/canvas/canvas-node-geometry";
@@ -186,6 +186,7 @@ function InfiniteCanvasPage() {
 
     const config = useConfigStore((state) => state.config);
     const effectiveConfig = useEffectiveConfig();
+    const updateConfig = useConfigStore((state) => state.updateConfig);
     const isAiConfigReady = useConfigStore((state) => state.isAiConfigReady);
     const openConfigDialog = useConfigStore((state) => state.openConfigDialog);
     const addAsset = useAssetStore((state) => state.addAsset);
@@ -254,6 +255,7 @@ function InfiniteCanvasPage() {
     const selectionBoxRef = useRef(selectionBox);
     const pendingConnectionCreateRef = useRef(pendingConnectionCreate);
     const generationRequestsRef = useRef(new Map<string, CanvasGenerationRequest>());
+    const ignoredMissingVideoCardMediaRef = useRef(new Set<string>());
 
     const createHistoryEntry = useCallback(
         (): CanvasHistoryEntry => ({
@@ -591,7 +593,7 @@ function InfiniteCanvasPage() {
 
     const nodeById = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes]);
     const canArrangeSelectedMedia = useMemo(
-        () => selectedNodeIds.size >= 2 && Array.from(selectedNodeIds).every((id) => [CanvasNodeType.Image, CanvasNodeType.Video].some((type) => type === nodeById.get(id)?.type)),
+        () => selectedNodeIds.size >= 2 && Array.from(selectedNodeIds).every((id) => [CanvasNodeType.Image, CanvasNodeType.Video, CanvasNodeType.CharacterCard, CanvasNodeType.PropCard, CanvasNodeType.SceneCard].some((type) => type === nodeById.get(id)?.type)),
         [nodeById, selectedNodeIds],
     );
     const arrangeSelectedMedia = useCallback((layout: CanvasMediaLayout) => {
@@ -710,7 +712,18 @@ function InfiniteCanvasPage() {
                           count: getGenerationCount(effectiveConfig.canvasImageCount || effectiveConfig.count),
                       }
                     : undefined;
-            const newNode = createCanvasNode(type, targetPosition, configMetadata);
+            const videoMetadata =
+                type === CanvasNodeType.Video
+                    ? {
+                          model: effectiveConfig.videoModel || effectiveConfig.model,
+                          size: effectiveConfig.size,
+                          seconds: effectiveConfig.videoSeconds,
+                          vquality: effectiveConfig.vquality,
+                          generateAudio: effectiveConfig.videoGenerateAudio,
+                          watermark: effectiveConfig.videoWatermark,
+                      }
+                    : undefined;
+            const newNode = videoMetadata ? applyNodeConfigPatch(createCanvasNode(type, targetPosition, videoMetadata), videoMetadata) : createCanvasNode(type, targetPosition, configMetadata);
 
             setNodes((prev) => [...prev, newNode]);
             setSelectedNodeIds(new Set([newNode.id]));
@@ -728,7 +741,7 @@ function InfiniteCanvasPage() {
                 : isBuiltinType(type) && type !== CanvasNodeType.Text && type !== CanvasNodeType.Audio && type !== CanvasNodeType.Group && !isCanvasCardNode(newNode);
             if (wantsPanel) setDialogNodeId(newNode.id);
         },
-        [effectiveConfig.canvasImageCount, effectiveConfig.count, effectiveConfig.imageModel, effectiveConfig.model, effectiveConfig.size, getCanvasCenter],
+        [effectiveConfig.canvasImageCount, effectiveConfig.count, effectiveConfig.imageModel, effectiveConfig.model, effectiveConfig.size, effectiveConfig.videoGenerateAudio, effectiveConfig.videoModel, effectiveConfig.videoSeconds, effectiveConfig.videoWatermark, effectiveConfig.vquality, getCanvasCenter],
     );
 
     const deleteNodes = useCallback(
@@ -1178,7 +1191,7 @@ function InfiniteCanvasPage() {
             if (clickedDefinition?.hidePanel) {
                 // Clicking a display-only plugin node selects it without opening a lower panel.
                 setDialogNodeId((current) => (current === clickedNodeId ? current : null));
-            } else if (clickedNode?.type !== CanvasNodeType.Group) {
+            } else if (clickedNode?.type !== CanvasNodeType.Group && !isCanvasCardNode(clickedNode)) {
                 setDialogNodeId(clickedNodeId);
             }
         }
@@ -1608,8 +1621,8 @@ function InfiniteCanvasPage() {
         }
         const cardNodes = nodesRef.current.filter(isCanvasCardNode);
         const matchedIds = matchedCardNodeIds(prompt, cardNodes);
-        const labels = cardNodes.filter((card) => matchedIds.includes(card.id)).map(cardMentionLabel).filter((label) => label && !prompt.includes(label));
-        const nextPrompt = `${prompt.trimEnd()}${labels.length ? `${prompt.trim() ? " " : ""}${labels.join(" ")}` : ""}`;
+        const matchedCards = matchedIds.map((id) => cardNodes.find((card) => card.id === id)).filter((card): card is CanvasNodeData => Boolean(card));
+        const nextPrompt = prependVideoCardIntroductions(prompt, matchedCards);
         setNodes((prev) => prev.map((item) => (item.id === nodeId ? { ...item, metadata: { ...item.metadata, prompt: nextPrompt } } : item)));
         if (!matchedIds.length) return;
         setConnections((prev) => {
@@ -1622,12 +1635,13 @@ function InfiniteCanvasPage() {
     const handleCardMetadataChange = useCallback((nodeId: string, patch: Partial<CanvasNodeMetadata>) => {
         const name = patch.cardName?.trim();
         const card = nodesRef.current.find((node) => node.id === nodeId);
-        const mention = card && name ? cardMentionLabel({ ...card, metadata: { ...card.metadata, ...patch } }) : "";
+        const updatedCard = card && name ? { ...card, metadata: { ...card.metadata, ...patch } } : null;
+        const introduction = updatedCard ? videoCardIntroduction(updatedCard) : "";
         const videoIds = name ? nodesRef.current.filter((node) => node.type === CanvasNodeType.Video && node.metadata?.prompt?.includes(name)).map((node) => node.id) : [];
         setNodes((prev) =>
             prev.map((node) => {
                 if (node.id === nodeId) return { ...node, metadata: { ...node.metadata, ...patch } };
-                if (videoIds.includes(node.id) && mention && !node.metadata?.prompt?.includes(mention)) return { ...node, metadata: { ...node.metadata, prompt: `${node.metadata?.prompt?.trimEnd()}${node.metadata?.prompt?.trim() ? " " : ""}${mention}` } };
+                if (videoIds.includes(node.id) && introduction && updatedCard) return { ...node, metadata: { ...node.metadata, prompt: prependVideoCardIntroductions(node.metadata?.prompt || "", [updatedCard]) } };
                 return node;
             }),
         );
@@ -1640,8 +1654,17 @@ function InfiniteCanvasPage() {
     }, []);
 
     const handleConfigNodeChange = useCallback((nodeId: string, patch: Partial<CanvasNodeData["metadata"]>) => {
+        const node = nodesRef.current.find((item) => item.id === nodeId);
+        if (node?.type === CanvasNodeType.Video) {
+            if (typeof patch.model === "string") updateConfig("videoModel", patch.model);
+            if (typeof patch.size === "string") updateConfig("size", patch.size);
+            if (typeof patch.seconds === "string") updateConfig("videoSeconds", patch.seconds);
+            if (typeof patch.vquality === "string") updateConfig("vquality", patch.vquality);
+            if (typeof patch.generateAudio === "string") updateConfig("videoGenerateAudio", patch.generateAudio);
+            if (typeof patch.watermark === "string") updateConfig("videoWatermark", patch.watermark);
+        }
         setNodes((prev) => prev.map((node) => (node.id === nodeId ? applyNodeConfigPatch(node, patch) : node)));
-    }, []);
+    }, [updateConfig]);
 
     const downloadNodeImage = useCallback((node: CanvasNodeData) => {
         if ((node.type !== CanvasNodeType.Image && node.type !== CanvasNodeType.Video && node.type !== CanvasNodeType.Audio) || !node.metadata?.content) return;
@@ -2153,6 +2176,37 @@ function InfiniteCanvasPage() {
     const handleGenerateNode = useCallback(
         async (nodeId: string, mode: CanvasNodeGenerationMode, prompt: string) => {
             const sourceNode = nodesRef.current.find((node) => node.id === nodeId);
+            const generationKey = `${nodeId}:${prompt}`;
+            const ignoreMissingCardMedia = ignoredMissingVideoCardMediaRef.current.delete(generationKey);
+            if (mode === "video" && !ignoreMissingCardMedia) {
+                const cardNodes = nodesRef.current.filter(isCanvasCardNode);
+                const matchedCards = matchedCardNodeIds(prompt, cardNodes).map((id) => cardNodes.find((card) => card.id === id)).filter((card): card is CanvasNodeData => Boolean(card));
+                const connectedCards = getGenerationResourceNodes(nodeId, nodesRef.current, connectionsRef.current).filter(isCanvasCardNode);
+                const missingCards = [...new Map([...matchedCards, ...connectedCards].map((card) => [card.id, card])).values()].filter((card) =>
+                    card.type === CanvasNodeType.CharacterCard ? !card.metadata?.cardFaceImage?.url && !card.metadata?.cardOutfitImage?.url : !card.metadata?.cardImage?.url,
+                );
+                if (missingCards.length) {
+                    modal.confirm({
+                        title: t("canvas.projectPage.missingCardMediaTitle"),
+                        content: (
+                            <div className="space-y-2">
+                                <p>{t("canvas.projectPage.missingCardMediaDescription")}</p>
+                                <ul className="list-disc space-y-1 pl-5">
+                                    {missingCards.map((card) => <li key={card.id}>{t("canvas.projectPage.missingCardMediaItem", { type: card.type === CanvasNodeType.CharacterCard ? t("canvas.nodeTypes.characterCard") : card.type === CanvasNodeType.PropCard ? t("canvas.nodeTypes.propCard") : t("canvas.nodeTypes.sceneCard"), name: cardReferenceTitle(card) })}</li>)}
+                                </ul>
+                            </div>
+                        ),
+                        cancelText: t("canvas.projectPage.addMissingCardMedia"),
+                        okText: t("canvas.projectPage.ignoreMissingCardMedia"),
+                        onCancel: () => focusNode(missingCards[0].id),
+                        onOk: () => {
+                            ignoredMissingVideoCardMediaRef.current.add(generationKey);
+                            void generateNodeRef.current?.(nodeId, mode, prompt);
+                        },
+                    });
+                    return;
+                }
+            }
             const generationConfig = buildGenerationConfig(effectiveConfig, sourceNode, mode);
             if (!isAiConfigReady(generationConfig, generationConfig.model)) {
                 openConfigDialog(true);
@@ -2584,7 +2638,7 @@ function InfiniteCanvasPage() {
                 setRunningNodeId(null);
             }
         },
-        [effectiveConfig, finishGenerationRequest, isAiConfigReady, message, openConfigDialog, startGenerationRequest, t],
+        [effectiveConfig, finishGenerationRequest, focusNode, isAiConfigReady, message, modal, openConfigDialog, startGenerationRequest, t],
     );
     useEffect(() => {
         generateNodeRef.current = handleGenerateNode;

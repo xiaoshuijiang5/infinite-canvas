@@ -95,8 +95,6 @@ export type CanvasNodeMetadata = {
     durationMs?: number;
     groupId?: string;
     cardName?: string;
-    cardFaceImage?: CanvasCardMedia;
-    cardOutfitImage?: CanvasCardMedia;
     cardImage?: CanvasCardMedia;
     cardVoice?: CanvasCardMedia;
     interactive?: boolean; // Plugin node interaction/move state; see CanvasNodeDefinition.interactionToggle.

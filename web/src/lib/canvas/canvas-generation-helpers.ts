@@ -47,8 +47,14 @@ export async function hydrateCanvasImages(nodes: CanvasNodeData[]) {
         nodes.map(async (node) => {
             const metadata = node.metadata;
             const content = metadata?.content;
+            if (!metadata) return node;
+            if ([CanvasNodeType.CharacterCard, CanvasNodeType.PropCard, CanvasNodeType.SceneCard].includes(node.type as CanvasNodeType)) {
+                const cardImage = metadata.cardImage?.storageKey ? { ...metadata.cardImage, url: await resolveImageUrl(metadata.cardImage.storageKey, metadata.cardImage.url) } : metadata.cardImage;
+                const cardVoice = metadata.cardVoice?.storageKey ? { ...metadata.cardVoice, url: await resolveMediaUrl(metadata.cardVoice.storageKey, metadata.cardVoice.url) } : metadata.cardVoice;
+                return { ...node, metadata: { ...metadata, ...(cardImage ? { cardImage } : {}), ...(cardVoice ? { cardVoice } : {}) } };
+            }
             if ((node.type === CanvasNodeType.Video || node.type === CanvasNodeType.Audio) && metadata?.storageKey) return { ...node, metadata: { ...metadata, content: await resolveMediaUrl(metadata.storageKey, content) } };
-            if (node.type !== CanvasNodeType.Image || !metadata || !content) return node;
+            if (node.type !== CanvasNodeType.Image || !content) return node;
             const images = await Promise.all((metadata.images || []).map(async (image) => (image.content ? { ...image, content: await resolveImageUrl(image.storageKey, image.content) } : image)));
             if (metadata.storageKey) return { ...node, metadata: { ...metadata, content: await resolveImageUrl(metadata.storageKey, content), images } };
             if (!content.startsWith("data:image/")) return node;

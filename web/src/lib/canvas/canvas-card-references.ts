@@ -4,27 +4,20 @@ export function isCanvasCardNode(node: CanvasNodeData) {
     return [CanvasNodeType.CharacterCard, CanvasNodeType.PropCard, CanvasNodeType.SceneCard].includes(node.type as CanvasNodeType);
 }
 
-export function cardMentionLabel(node: CanvasNodeData) {
-    const name = node.metadata?.cardName?.trim();
-    if (!name) return "";
+export function cardImageReferenceText(node: CanvasNodeData, label: string) {
+    const name = cardReferenceTitle(node);
     const kind = node.type === CanvasNodeType.CharacterCard ? "角色" : node.type === CanvasNodeType.PropCard ? "道具" : "场景";
-    return `@${kind}：${name}`;
+    return `${label}（${kind}：${name}）`;
 }
 
-export function videoCardIntroduction(node: CanvasNodeData) {
-    const name = node.metadata?.cardName?.trim();
-    if (!name) return "";
-    if (node.type === CanvasNodeType.CharacterCard) return `@角色卡为${name}`;
-    if (node.type === CanvasNodeType.PropCard) return `@道具卡为${name}`;
-    if (node.type === CanvasNodeType.SceneCard) return "@场景卡为环境参考";
-    return "";
-}
-
-export function prependVideoCardIntroductions(prompt: string, cards: CanvasNodeData[]) {
-    const introductions = cards.map(videoCardIntroduction).filter(Boolean);
-    if (!introductions.length) return prompt.trim();
-    const body = introductions.reduce((text, introduction) => text.replace(introduction, ""), prompt).trim();
-    return [...introductions, body].filter(Boolean).join(" ");
+export function prependVideoCardImageReferences(prompt: string, cards: CanvasNodeData[], labels: Map<string, string>) {
+    const references = cards.map((card) => {
+        const label = labels.get(card.id);
+        return label ? cardImageReferenceText(card, label) : "";
+    }).filter(Boolean);
+    // Remove the old text-only card declarations. Actual image labels remain in the prompt.
+    const body = prompt.replace(/@(?:角色|道具|场景)卡为[^\s]+/g, "").trim();
+    return [...references.filter((reference) => !body.includes(reference)), body].filter(Boolean).join(" ");
 }
 
 export function cardReferenceTitle(node: CanvasNodeData) {
@@ -34,12 +27,28 @@ export function cardReferenceTitle(node: CanvasNodeData) {
 export function matchedCardNodeIds(prompt: string, nodes: CanvasNodeData[]) {
     const text = prompt.trim();
     if (!text) return [];
-    return nodes
+    const cards = nodes
         .filter(isCanvasCardNode)
-        .filter((node) => {
-            const name = node.metadata?.cardName?.trim();
-            return Boolean(name && text.includes(name));
-        })
-        .sort((a, b) => (b.metadata?.cardName?.length || 0) - (a.metadata?.cardName?.length || 0))
-        .map((node) => node.id);
+        .map((node) => ({ node, name: node.metadata?.cardName?.trim() || "" }))
+        .filter((item) => item.name)
+        .sort((a, b) => b.name.length - a.name.length);
+    const occupied = new Array(text.length).fill(false);
+    const matched = new Set<string>();
+
+    // Scene names can share a prefix (for example "空间" and "空间厨房").
+    // Resolve longer, concrete names first so a prefix card is only used for its own mention.
+    cards.forEach(({ node, name }) => {
+        let start = text.indexOf(name);
+        while (start !== -1) {
+            const end = start + name.length;
+            if (!occupied.slice(start, end).some(Boolean)) {
+                matched.add(node.id);
+                occupied.fill(true, start, end);
+            }
+            start = text.indexOf(name, end);
+        }
+    });
+    return cards
+        .filter(({ node }) => matched.has(node.id))
+        .map(({ node }) => node.id);
 }

@@ -45,7 +45,7 @@ import { useCanvasStore } from "@/stores/canvas/use-canvas-store";
 import { useAgentBridge } from "@/pages/canvas/hooks/use-agent-bridge";
 import { usePluginHost } from "@/pages/canvas/hooks/use-plugin-host";
 import { buildNodeMentionReferences, getGenerationResourceNodes, getGroupResourceNodes, isCanvasReferenceNode, type CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
-import { cardReferenceTitle, isCanvasCardNode, matchedCardNodeIds, prependVideoCardIntroductions, videoCardIntroduction } from "@/lib/canvas/canvas-card-references";
+import { cardReferenceTitle, isCanvasCardNode, matchedCardNodeIds, prependVideoCardImageReferences } from "@/lib/canvas/canvas-card-references";
 import { exportCanvasProjects } from "@/lib/canvas/canvas-export";
 import { applyNodeConfigPatch, audioMetadata, buildAudioGenerationMetadata, buildImageGenerationMetadata, createCanvasNode, imageMetadata, videoMetadata } from "@/lib/canvas/canvas-node-factory";
 import { arrangeMediaNodes, findContainingGroupId, findGroupDropTarget, getConnectionTargetAnchor, normalizeConnection, snapNodesIntoGroup, type CanvasMediaLayout } from "@/lib/canvas/canvas-node-geometry";
@@ -342,8 +342,16 @@ function InfiniteCanvasPage() {
 
         const restore = async () => {
             const restoredNodes = await hydrateCanvasImages(resetInterruptedGeneration(project.nodes));
+            const normalizedNodes = restoredNodes.map((node) => {
+                if (node.type !== CanvasNodeType.Video) return node;
+                const cards = getGenerationResourceNodes(node.id, restoredNodes, project.connections).filter(isCanvasCardNode);
+                if (!cards.length) return node;
+                const labels = new Map(buildNodeMentionReferences(node, restoredNodes, project.connections).filter((reference) => reference.kind === "image").map((reference) => [reference.nodeId, reference.label]));
+                const prompt = prependVideoCardImageReferences(node.metadata?.prompt || "", cards, labels);
+                return prompt === node.metadata?.prompt ? node : { ...node, metadata: { ...node.metadata, prompt } };
+            });
             const restoredSessions = await hydrateAssistantImages(project.chatSessions || []);
-            setNodes(restoredNodes);
+            setNodes(normalizedNodes);
             setConnections(project.connections);
             setChatSessions(restoredSessions);
             setActiveChatId(project.activeChatId || null);
@@ -356,7 +364,7 @@ function InfiniteCanvasPage() {
                 historyCommitTimerRef.current = null;
             }
             lastHistoryRef.current = {
-                nodes: restoredNodes,
+                nodes: normalizedNodes,
                 connections: project.connections,
                 chatSessions: restoredSessions,
                 activeChatId: project.activeChatId || null,
@@ -1191,7 +1199,7 @@ function InfiniteCanvasPage() {
             if (clickedDefinition?.hidePanel) {
                 // Clicking a display-only plugin node selects it without opening a lower panel.
                 setDialogNodeId((current) => (current === clickedNodeId ? current : null));
-            } else if (clickedNode?.type !== CanvasNodeType.Group && !isCanvasCardNode(clickedNode)) {
+            } else if (clickedNode && clickedNode.type !== CanvasNodeType.Group && !isCanvasCardNode(clickedNode)) {
                 setDialogNodeId(clickedNodeId);
             }
         }
@@ -1622,38 +1630,41 @@ function InfiniteCanvasPage() {
         const cardNodes = nodesRef.current.filter(isCanvasCardNode);
         const matchedIds = matchedCardNodeIds(prompt, cardNodes);
         const matchedCards = matchedIds.map((id) => cardNodes.find((card) => card.id === id)).filter((card): card is CanvasNodeData => Boolean(card));
-        const nextPrompt = prependVideoCardIntroductions(prompt, matchedCards);
-        setNodes((prev) => prev.map((item) => (item.id === nodeId ? { ...item, metadata: { ...item.metadata, prompt: nextPrompt } } : item)));
-        if (!matchedIds.length) return;
         setConnections((prev) => {
             const existing = new Set(prev.map((connection) => `${connection.fromNodeId}:${connection.toNodeId}`));
             const additions = matchedIds.filter((fromNodeId) => !existing.has(`${fromNodeId}:${nodeId}`)).map((fromNodeId) => ({ id: nanoid(), fromNodeId, toNodeId: nodeId }));
-            return additions.length ? [...prev, ...additions] : prev;
+            const nextConnections = additions.length ? [...prev, ...additions] : prev;
+            const target = nodesRef.current.find((item) => item.id === nodeId);
+            const labels = new Map(buildNodeMentionReferences(target || node, nodesRef.current, nextConnections).filter((reference) => reference.kind === "image").map((reference) => [reference.nodeId, reference.label]));
+            const nextPrompt = prependVideoCardImageReferences(prompt, matchedCards, labels);
+            setNodes((current) => current.map((item) => (item.id === nodeId ? { ...item, metadata: { ...item.metadata, prompt: nextPrompt } } : item)));
+            return nextConnections;
         });
     }, []);
 
     const handleCardMetadataChange = useCallback((nodeId: string, patch: Partial<CanvasNodeMetadata>) => {
-        const name = patch.cardName?.trim();
         const card = nodesRef.current.find((node) => node.id === nodeId);
-        const updatedCard = card && name ? { ...card, metadata: { ...card.metadata, ...patch } } : null;
-        const introduction = updatedCard ? videoCardIntroduction(updatedCard) : "";
-        const videoIds = name ? nodesRef.current.filter((node) => node.type === CanvasNodeType.Video && node.metadata?.prompt?.includes(name)).map((node) => node.id) : [];
-        setNodes((prev) =>
-            prev.map((node) => {
-                if (node.id === nodeId) return { ...node, metadata: { ...node.metadata, ...patch } };
-                if (videoIds.includes(node.id) && introduction && updatedCard) return { ...node, metadata: { ...node.metadata, prompt: prependVideoCardIntroductions(node.metadata?.prompt || "", [updatedCard]) } };
-                return node;
-            }),
-        );
-        if (!videoIds.length) return;
+        const updatedCard = card ? { ...card, metadata: { ...card.metadata, ...patch } } : null;
+        const nextNodes = updatedCard ? nodesRef.current.map((node) => (node.id === nodeId ? updatedCard : node)) : nodesRef.current;
+        const cards = nextNodes.filter(isCanvasCardNode);
+        const videoIds = updatedCard ? nodesRef.current.filter((node) => node.type === CanvasNodeType.Video && matchedCardNodeIds(node.metadata?.prompt || "", cards).includes(nodeId)).map((node) => node.id) : [];
         setConnections((prev) => {
             const existing = new Set(prev.map((connection) => `${connection.fromNodeId}:${connection.toNodeId}`));
             const additions = videoIds.filter((toNodeId) => !existing.has(`${nodeId}:${toNodeId}`)).map((toNodeId) => ({ id: nanoid(), fromNodeId: nodeId, toNodeId }));
-            return additions.length ? [...prev, ...additions] : prev;
+            const nextConnections = additions.length ? [...prev, ...additions] : prev;
+            setNodes((current) =>
+                current.map((node) => {
+                    if (node.id === nodeId) return { ...node, metadata: { ...node.metadata, ...patch } };
+                    if (!videoIds.includes(node.id) || !updatedCard) return node;
+                    const labels = new Map(buildNodeMentionReferences(node, nextNodes, nextConnections).filter((reference) => reference.kind === "image").map((reference) => [reference.nodeId, reference.label]));
+                    return { ...node, metadata: { ...node.metadata, prompt: prependVideoCardImageReferences(node.metadata?.prompt || "", [updatedCard], labels) } };
+                }),
+            );
+            return nextConnections;
         });
     }, []);
 
-    const handleConfigNodeChange = useCallback((nodeId: string, patch: Partial<CanvasNodeData["metadata"]>) => {
+    const handleConfigNodeChange = useCallback((nodeId: string, patch: Partial<CanvasNodeMetadata>) => {
         const node = nodesRef.current.find((item) => item.id === nodeId);
         if (node?.type === CanvasNodeType.Video) {
             if (typeof patch.model === "string") updateConfig("videoModel", patch.model);
@@ -2183,7 +2194,7 @@ function InfiniteCanvasPage() {
                 const matchedCards = matchedCardNodeIds(prompt, cardNodes).map((id) => cardNodes.find((card) => card.id === id)).filter((card): card is CanvasNodeData => Boolean(card));
                 const connectedCards = getGenerationResourceNodes(nodeId, nodesRef.current, connectionsRef.current).filter(isCanvasCardNode);
                 const missingCards = [...new Map([...matchedCards, ...connectedCards].map((card) => [card.id, card])).values()].filter((card) =>
-                    card.type === CanvasNodeType.CharacterCard ? !card.metadata?.cardFaceImage?.url && !card.metadata?.cardOutfitImage?.url : !card.metadata?.cardImage?.url,
+                    !card.metadata?.cardImage?.url,
                 );
                 if (missingCards.length) {
                     modal.confirm({

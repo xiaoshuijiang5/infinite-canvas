@@ -229,7 +229,7 @@ function CanvasNodesTab({ nodes, selectedNodeIds, onFocusNode, onPreviewNode, th
                     <div className="space-y-1.5">
                         {treeRows.map(({ node, depth, hasChildren }) => {
                             const Icon = NODE_TYPE_ICON[node.type] || FileText;
-                            const previewImage = node.type === CanvasNodeType.Image ? node.metadata?.content : node.type === CanvasNodeType.CharacterCard ? node.metadata?.cardFaceImage?.url || node.metadata?.cardOutfitImage?.url : node.metadata?.cardImage?.url;
+                            const previewImage = node.type === CanvasNodeType.Image ? node.metadata?.content : node.metadata?.cardImage?.url;
                             const isImage = Boolean(previewImage);
                             const isChecked = checked.has(node.id);
                             const active = selectMode ? isChecked : selectedNodeIds.has(node.id);
@@ -470,7 +470,7 @@ function AssetCard({ asset, theme, onInsert, onRemove }: { asset: Asset; theme: 
 function CanvasCardAsset({ node, theme, onFocus }: { node: CanvasNodeData; theme: CanvasTheme; onFocus: () => void }) {
     const { t } = useTranslation();
     const Icon = NODE_TYPE_ICON[node.type] || FileText;
-    const image = node.type === CanvasNodeType.CharacterCard ? node.metadata?.cardFaceImage?.url || node.metadata?.cardOutfitImage?.url : node.metadata?.cardImage?.url;
+    const image = node.metadata?.cardImage?.url;
     const label = node.metadata?.cardName || node.title || t("canvas.node.untitled");
     return (
         <button type="button" onClick={onFocus} title={label} aria-label={label} className="group relative aspect-square overflow-hidden rounded-lg border text-left transition duration-200 hover:-translate-y-0.5 hover:shadow-lg" style={{ borderColor: theme.node.stroke, background: theme.node.panel }}>

@@ -14,8 +14,7 @@ function builtinResource(node: CanvasNodeData): CanvasNodeResource | null {
     if (node.type === CanvasNodeType.Video && node.metadata?.content) return { kind: "video", url: node.metadata.content };
     if (node.type === CanvasNodeType.Audio && node.metadata?.content) return { kind: "audio", url: node.metadata.content };
     if (node.type === CanvasNodeType.Text && (node.metadata?.content || node.metadata?.prompt)) return { kind: "text", text: node.metadata.content || node.metadata.prompt };
-    if (node.type === CanvasNodeType.CharacterCard && (node.metadata?.cardFaceImage?.url || node.metadata?.cardOutfitImage?.url)) return { kind: "image", url: node.metadata.cardFaceImage?.url || node.metadata.cardOutfitImage?.url };
-    if ((node.type === CanvasNodeType.PropCard || node.type === CanvasNodeType.SceneCard) && node.metadata?.cardImage?.url) return { kind: "image", url: node.metadata.cardImage.url };
+    if ([CanvasNodeType.CharacterCard, CanvasNodeType.PropCard, CanvasNodeType.SceneCard].includes(node.type as CanvasNodeType) && node.metadata?.cardImage?.url) return { kind: "image", url: node.metadata.cardImage.url };
     if ([CanvasNodeType.CharacterCard, CanvasNodeType.PropCard, CanvasNodeType.SceneCard].includes(node.type as CanvasNodeType) && node.metadata?.cardName?.trim()) return { kind: "text", text: node.metadata.cardName.trim() };
     return null;
 }

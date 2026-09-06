@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type RefObject } from "react";
-import { ImagePlus, Music2, Upload, UserRound, Volume2 } from "lucide-react";
+import { GripVertical, ImagePlus, Music2, Upload, UserRound, Volume2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { canvasThemes } from "@/lib/canvas-theme";
@@ -13,45 +13,15 @@ export function CanvasCardNode({ node, onChange }: { node: CanvasNodeData; onCha
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const isCharacter = node.type === CanvasNodeType.CharacterCard;
     const image = node.metadata?.cardImage;
-    const face = node.metadata?.cardFaceImage;
-    const outfit = node.metadata?.cardOutfitImage;
     const voice = node.metadata?.cardVoice;
-    const defaultImageInputRef = useRef<HTMLInputElement>(null);
-    const cancelCardClickRef = useRef<(() => void) | null>(null);
     const [isHovered, setIsHovered] = useState(false);
     const updateName = (cardName: string) => onChange?.({ cardName });
     const namePlaceholder = t(`canvas.card.${isCharacter ? "characterName" : "name"}`);
 
-    useEffect(() => () => cancelCardClickRef.current?.(), []);
-
-    const handleCardMouseDown = (event: ReactMouseEvent<HTMLDivElement>) => {
-        if (event.button !== 0) return;
-        if (event.target instanceof Element && event.target.closest("[data-canvas-card-media]")) return;
-        const isDragHandle = event.target instanceof Element && Boolean(event.target.closest("[data-canvas-card-drag]"));
-        cancelCardClickRef.current?.();
-        const startX = event.clientX;
-        const startY = event.clientY;
-        let moved = false;
-        const clear = () => {
-            window.removeEventListener("mousemove", onMove);
-            window.removeEventListener("mouseup", onUp);
-            if (cancelCardClickRef.current === clear) cancelCardClickRef.current = null;
-        };
-        const onMove = (moveEvent: MouseEvent) => {
-            if (Math.abs(moveEvent.clientX - startX) > 3 || Math.abs(moveEvent.clientY - startY) > 3) moved = true;
-        };
-        const onUp = () => {
-            clear();
-            if (!moved && !isDragHandle) defaultImageInputRef.current?.click();
-        };
-        cancelCardClickRef.current = clear;
-        window.addEventListener("mousemove", onMove);
-        window.addEventListener("mouseup", onUp);
-    };
-
     return (
-        <div className="flex h-full w-full flex-col gap-2.5 p-3" data-canvas-no-zoom onMouseDown={handleCardMouseDown} onMouseEnter={() => setIsHovered(true)} onMouseLeave={() => setIsHovered(false)}>
-            <div data-canvas-card-drag className="relative flex h-12 min-w-0 shrink-0 items-center gap-2 px-1">
+        <div className="flex h-full w-full flex-col gap-2.5 p-3" data-canvas-no-zoom onMouseEnter={() => setIsHovered(true)} onMouseLeave={() => setIsHovered(false)}>
+            <div data-canvas-card-drag className="relative flex h-12 min-w-0 shrink-0 cursor-grab items-center gap-2 px-1 active:cursor-grabbing">
+                <GripVertical className="size-4 shrink-0 opacity-45" style={{ color: theme.node.muted }} />
                 <span className="grid size-7 shrink-0 place-items-center rounded-lg" style={{ background: theme.toolbar.itemHover, color: theme.node.muted }}>
                     {isCharacter ? <UserRound className="size-4" /> : <ImagePlus className="size-4" />}
                 </span>
@@ -60,14 +30,11 @@ export function CanvasCardNode({ node, onChange }: { node: CanvasNodeData; onCha
             </div>
             {isCharacter ? (
                 <>
-                    <div className="grid min-h-0 flex-1 grid-cols-2 gap-2">
-                        <CardImageSlot label={t("canvas.card.face")} image={face} inputRef={defaultImageInputRef} onChange={(cardFaceImage) => onChange?.({ cardFaceImage })} />
-                        <CardImageSlot label={t("canvas.card.outfit")} image={outfit} onChange={(cardOutfitImage) => onChange?.({ cardOutfitImage })} />
-                    </div>
+                    <CardImageSlot label={t("canvas.card.appearance")} image={image} onChange={(cardImage) => onChange?.({ cardImage })} className="flex-1" />
                     <CardVoiceSlot voice={voice} onChange={(cardVoice) => onChange?.({ cardVoice })} />
                 </>
             ) : (
-                <CardImageSlot label={t("canvas.card.image")} image={image} inputRef={defaultImageInputRef} onChange={(cardImage) => onChange?.({ cardImage })} className="flex-1" />
+                <CardImageSlot label={t("canvas.card.image")} image={image} onChange={(cardImage) => onChange?.({ cardImage })} className="flex-1" />
             )}
         </div>
     );

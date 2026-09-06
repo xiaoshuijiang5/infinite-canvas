@@ -99,6 +99,17 @@ function buildComposerGenerationContext(inputs: NodeGenerationInput[], prompt: s
 
     nextPrompt += prompt.slice(lastIndex);
     if (textBlocks.length) nextPrompt = `${nextPrompt.trim()}\n\n${textBlocks.join("\n\n")}`;
+
+    // A composer often mentions a text node while its reference images are simply
+    // connected to the configuration node. Keep those images unless the author
+    // explicitly selected one or more media resources in the composer.
+    const hasSelectedMedia = selectedInputs.some((input) => input.type === "image" || input.type === "video" || input.type === "audio");
+    if (!hasSelectedMedia) {
+        for (const input of flattenGenerationInputs(inputs)) {
+            if (input.type === "text" || selectedInputs.some((selected) => selected.nodeId === input.nodeId)) continue;
+            selectedInputs.push(input);
+        }
+    }
     const referenceImages = selectedInputs.map((input) => input.image).filter((image): image is ReferenceImage => Boolean(image));
     const referenceVideos = selectedInputs.map((input) => input.video).filter((video): video is ReferenceVideo => Boolean(video));
     const referenceAudios = selectedInputs.map((input) => input.audio).filter((audio): audio is ReferenceAudio => Boolean(audio));
@@ -161,7 +172,7 @@ function readNodeGenerationResource(node: CanvasNodeData): NodeGenerationResourc
 }
 
 function readCardGenerationResources(node: CanvasNodeData): NodeGenerationResourceInput[] {
-    const images = node.type === CanvasNodeType.CharacterCard ? [node.metadata?.cardFaceImage, node.metadata?.cardOutfitImage] : [node.metadata?.cardImage];
+    const images = [node.metadata?.cardImage];
     return images.flatMap((image, index) =>
         image?.url
             ? [{ nodeId: `${node.id}:${index}`, type: "image" as const, title: node.metadata?.cardName || node.title, image: { id: `${node.id}:${index}`, name: `${node.metadata?.cardName || node.title}-${index + 1}.png`, type: image.mimeType || "image/png", dataUrl: image.url, storageKey: image.storageKey } }]

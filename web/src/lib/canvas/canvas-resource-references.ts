@@ -4,7 +4,7 @@ import { getNodeDefinition } from "@/lib/canvas/node-registry";
 import { getDataUrlByteSize, readImageMeta } from "@/lib/image-utils";
 import { imageToDataUrl } from "@/services/image-storage";
 import { CanvasNodeType, type CanvasConnection, type CanvasNodeData } from "@/types/canvas";
-import { cardMentionLabel, cardReferenceTitle, isCanvasCardNode } from "@/lib/canvas/canvas-card-references";
+import { cardReferenceTitle, isCanvasCardNode } from "@/lib/canvas/canvas-card-references";
 
 export type CanvasResourceKind = "image" | "video" | "audio" | "text";
 
@@ -33,16 +33,19 @@ export async function resolveCanvasReferenceImages(references: CanvasResourceRef
         const node = nodesById.get(reference.nodeId);
         if (!node) throw new Error(i18n.t("agent.composer.mentions.resourceMissing", { title: reference.title }));
         const metadata = node.metadata;
-        const dataUrl = await imageToDataUrl({ storageKey: metadata?.storageKey, url: reference.previewUrl });
+        const cardImage = isCanvasCardNode(node) ? metadata?.cardImage : undefined;
+        const dataUrl = await imageToDataUrl({ storageKey: cardImage?.storageKey || metadata?.storageKey, url: reference.previewUrl });
         if (!dataUrl.startsWith("data:image/")) throw new Error(i18n.t("agent.composer.mentions.imageReadFailed", { title: reference.title }));
-        const meta = metadata?.naturalWidth && metadata.naturalHeight
+        const meta = cardImage?.width && cardImage.height
+            ? { width: cardImage.width, height: cardImage.height, mimeType: cardImage.mimeType || dataUrl.match(/^data:([^;]+)/)?.[1] || "image/png" }
+            : metadata?.naturalWidth && metadata.naturalHeight
             ? { width: metadata.naturalWidth, height: metadata.naturalHeight, mimeType: metadata.mimeType || dataUrl.match(/^data:([^;]+)/)?.[1] || "image/png" }
             : await readImageMeta(dataUrl);
         return {
             id: `canvas:${node.id}`,
             name: reference.title,
-            type: metadata?.mimeType || meta.mimeType,
-            size: metadata?.bytes || getDataUrlByteSize(dataUrl),
+            type: cardImage?.mimeType || metadata?.mimeType || meta.mimeType,
+            size: cardImage?.bytes || metadata?.bytes || getDataUrlByteSize(dataUrl),
             width: meta.width,
             height: meta.height,
             url: reference.previewUrl || dataUrl,
@@ -54,6 +57,8 @@ export async function resolveCanvasReferenceImages(references: CanvasResourceRef
 export function getMentionResourceNodes(nodeId: string, nodes: CanvasNodeData[], connections: CanvasConnection[]) {
     const configInputs = expandGroupResourceNodes(getConnectedConfigInputNodes(nodeId, nodes, connections), nodes);
     if (configInputs.length) return configInputs;
+    const inheritedConfigInputs = expandGroupResourceNodes(getConfigOutputInputNodes(nodeId, nodes, connections), nodes);
+    if (inheritedConfigInputs.length) return inheritedConfigInputs;
     const ownInputs = expandGroupResourceNodes(getContextInputNodes(nodeId, nodes, connections), nodes);
     if (ownInputs.length) return ownInputs;
     const node = nodes.find((item) => item.id === nodeId);
@@ -63,6 +68,8 @@ export function getMentionResourceNodes(nodeId: string, nodes: CanvasNodeData[],
 export function getGenerationResourceNodes(nodeId: string, nodes: CanvasNodeData[], connections: CanvasConnection[]) {
     const configInputs = getConnectedConfigInputNodes(nodeId, nodes, connections);
     if (configInputs.length) return configInputs;
+    const inheritedConfigInputs = getConfigOutputInputNodes(nodeId, nodes, connections);
+    if (inheritedConfigInputs.length) return inheritedConfigInputs;
     const ownInputs = getContextInputNodes(nodeId, nodes, connections);
     if (ownInputs.length) return ownInputs;
     return [];
@@ -79,6 +86,14 @@ function getConnectedConfigInputNodes(nodeId: string, nodes: CanvasNodeData[], c
     const configConnection = connections.find((connection) => connection.fromNodeId === nodeId && nodes.find((node) => node.id === connection.toNodeId)?.type === CanvasNodeType.Config);
     if (!configConnection) return [];
     return getContextInputNodes(configConnection.toNodeId, nodes, connections).filter((node) => node.id !== nodeId);
+}
+
+// Results created by a configuration node are linked as config -> result. Treat the
+// configuration's inputs as inherited references when the result is generated again.
+function getConfigOutputInputNodes(nodeId: string, nodes: CanvasNodeData[], connections: CanvasConnection[]) {
+    const configConnection = connections.find((connection) => connection.toNodeId === nodeId && nodes.find((node) => node.id === connection.fromNodeId)?.type === CanvasNodeType.Config);
+    if (!configConnection) return [];
+    return getContextInputNodes(configConnection.fromNodeId, nodes, connections).filter((node) => node.id !== nodeId);
 }
 
 function hasGroupResources(node: CanvasNodeData, nodes: CanvasNodeData[]) {
@@ -105,7 +120,7 @@ function labelResourceNodes(nodes: CanvasNodeData[], active: boolean) {
         if (!kind) return [];
         const resource = getNodeDefinition(node.type)?.resource?.(node);
         const index = counts[kind]++;
-        const label = isCanvasCardNode(node) ? cardMentionLabel(node) : labelForKind(kind, index);
+        const label = labelForKind(kind, index);
         if (!label) return [];
         return [
             {

@@ -13,9 +13,10 @@ import { CanvasAudioSettingsPopover, type CanvasAudioSettingKey } from "./canvas
 import { CanvasPromptChipInput } from "./canvas-prompt-chip-input";
 import { CanvasVideoSettingsPopover } from "./canvas-video-settings-popover";
 import { CanvasTextSettingsPopover } from "./canvas-text-settings-popover";
-import { CanvasNodeType, type CanvasGenerationMode, type CanvasNodeData } from "@/types/canvas";
+import { CanvasNodeType, type CanvasGenerationMode, type CanvasNodeData, type CanvasNodeMetadata } from "@/types/canvas";
 import type { CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
 import { CanvasNodeReferenceBar } from "./canvas-node-reference-bar";
+import { cardImageReferenceText, isCanvasCardNode } from "@/lib/canvas/canvas-card-references";
 
 export type CanvasNodeGenerationMode = CanvasGenerationMode;
 
@@ -23,7 +24,7 @@ type CanvasNodePromptPanelProps = {
     node: CanvasNodeData;
     isRunning: boolean;
     onPromptChange: (nodeId: string, prompt: string) => void;
-    onConfigChange: (nodeId: string, patch: Partial<CanvasNodeData["metadata"]>) => void;
+    onConfigChange: (nodeId: string, patch: Partial<CanvasNodeMetadata>) => void;
     onGenerate: (nodeId: string, mode: CanvasNodeGenerationMode, prompt: string) => void;
     onStop: (nodeId: string) => void;
     mentionReferences?: CanvasResourceReference[];
@@ -61,9 +62,10 @@ export function CanvasNodePromptPanel({ node, nodes, isRunning, onPromptChange, 
     };
 
     const insertReferenceMention = (referenceNode: CanvasNodeData) => {
-        const label = mentionReferences.find((reference) => reference.nodeId === referenceNode.id)?.label;
-        if (!label || prompt.includes(label)) return;
-        updatePrompt(`${prompt.trimEnd()}${prompt.trim() ? " " : ""}${label}`);
+        const reference = mentionReferences.find((item) => item.nodeId === referenceNode.id);
+        const text = reference ? isCanvasCardNode(referenceNode) ? cardImageReferenceText(referenceNode, reference.label) : reference.label : "";
+        if (!text || prompt.includes(text)) return;
+        updatePrompt(`${prompt.trimEnd()}${prompt.trim() ? " " : ""}${text}`);
     };
 
     const submit = () => {
